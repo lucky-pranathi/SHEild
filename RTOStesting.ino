@@ -4,17 +4,20 @@
 #include <ESP32Servo.h>
 #include <WiFi.h>        // ADD THIS
 #include <WiFiClientSecure.h> // ADD THIS
+#include <WebServer.h>     // <---- ADDED
+
 #if CONFIG_FREERTOS_UNICORE
 static const BaseType_t app_cpu=0;
 #else
 static const BaseType_t app_cpu=1;
 #endif
+
 String incomingData = "";
 const int gsrPin = 34;
 Servo myservo;
 static volatile int telegramFlag=0;
 static volatile int confirmFlag=1;
- String message="";
+String message="Hello, this is a test message from ESP32!";
 const int servoPin = 18;
 const int buzzer=5;
 static volatile uint8_t gsr_flag=0;
@@ -34,6 +37,17 @@ BluetoothSerial SerialBT;
 
 TinyGPSPlus gps;
 HardwareSerial GPS(1);
+
+// ----------------------------------------
+//   HTML WEB SERVER FOR DISPLAY
+// ----------------------------------------
+WebServer server(80);
+
+String htmlStatusPage = "No data yet";
+
+void handleStatus() {
+  server.send(200, "text/html", htmlStatusPage);
+}
 
 void gsr(void *parameter){
   int sensorValue = 0;
@@ -184,30 +198,20 @@ void button(void *parameter){
   }
 }
 
-void deterrent(void *parameter){
-  while(1){
-    if(btnFlag==1){
+void deterrent(void *parameter) {
+  while (1) {
+    if (btnFlag == 1) {
       myservo.write(180);
       digitalWrite(buzzer, HIGH);
-      message = 
-      "GPS Update\n"
-      "Lat: " + String(latitude, 6) + "\n"
-      "Lon: " + String(longitude, 6) + "\n"
-      "Date: " + String(day) + "-" + String(month) + "-20" + String(year) + "\n"
-      "Time: " + String(hr) + ":" + String(minu) + ":" + String(sec);
-
-      // Send to Telegram
-      // sendTelegramMessage(message);
-      telegramFlag=1;
-      //servo
-      //vibrator
-    }else if(btnFlag==0){
+      telegramFlag = 1;
+    } else if (btnFlag == 0) {
       myservo.write(0);
       digitalWrite(buzzer, LOW);
-      telegramFlag=0;
-      confirmFlag=1;
+      telegramFlag = 0;
+      confirmFlag = 1;
     }
-    vTaskDelay(2000/portTICK_PERIOD_MS);
+
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -220,6 +224,31 @@ void heart(void *parameter){
       vTaskDelay(1000/portTICK_PERIOD_MS);
     }
     vTaskDelay(1000/portTICK_PERIOD_MS);
+  }
+}
+void telegram(void *parameter) {
+  while (1) {
+    if (telegramFlag == 1 && confirmFlag == 1) {
+      
+      // ----------------------------------------------
+      // Replace Telegram → Display HTML Page
+      // ----------------------------------------------
+
+      htmlStatusPage =
+        "<html><body>"
+        "<h2>ESP32 ALERT STATUS</h2>"
+        "<p><b>GPS :</b><br>"
+        "Lat : " + String(latitude, 6) + "<br>"
+        "Lon : " + String(longitude, 6) + "<br>"
+        "Date : " + String(day) + "-" + String(month) + "-20" + String(year) + "<br>"
+        "Time : " + String(hr) + ":" + String(minu) + ":" + String(sec) +
+        "</p></body></html>";
+
+      // Serial.println("HTML Updated ✔");
+      confirmFlag = 0;
+    }
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -248,16 +277,22 @@ void setup() {
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
+  server.on("/status", handleStatus);
+  server.begin();
+  Serial.println("Web Server Started → Visit: http://<ESP_IP>/status");
+
   //xTaskCreatePinnedToCore(gsr,"Gsr Sensor Reading",1024,NULL,2,NULL,app_cpu);
-  xTaskCreatePinnedToCore(gpsTask,"GPS data reading",2048,NULL,1,NULL,app_cpu);
+  //xTaskCreatePinnedToCore(gpsTask,"GPS data reading",2048,NULL,1,NULL,app_cpu);
   xTaskCreatePinnedToCore(button,"Button",1024,NULL,3,NULL,app_cpu);
   xTaskCreatePinnedToCore(deterrent,"Activate servo and vibrator",4096,NULL,4,NULL,app_cpu);
   //xTaskCreatePinnedToCore(heart,"Heart Rate",768,NULL,2,NULL,app_cpu);
+  xTaskCreatePinnedToCore(telegram, "HTML Update", 4096, NULL, 1, NULL, app_cpu);
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+  server.handleClient();
   if (SerialBT.available()) {
     incomingData = SerialBT.readStringUntil('\n'); // Read full line
     incomingData.trim();
@@ -284,46 +319,4 @@ void loop() {
       Serial.println("Invalid data format!");
     }
   }
-  if(telegramFlag==1 && confirmFlag==1){
-    sendTelegramMessage(message);
-  }
 }
-
-void sendTelegramMessage(const String& message) {
-  WiFiClientSecure client;
-  client.setInsecure();  // Skip certificate verification
-
-  // Connect to Telegram API server
-  if (!client.connect("api.telegram.org", 443)) {
-    Serial.println("Connection to Telegram API failed");
-    return;
-  }
-
-  // Create the request URL
-  String url = "/bot";
-  url += botToken;
-  url += "/sendMessage?chat_id=";
-  url += chatId;
-  url += "&text=";
-  url += message;
-
-  // Send HTTP GET request
-  client.println("GET " + url + " HTTP/1.1");
-  client.println("Host: api.telegram.org");
-  client.println("Connection: close");
-  client.println();
-
-  // Read response
-  String response = "";
-  while (client.connected() || client.available()) {
-    if (client.available()) {
-      response += client.readStringUntil('\n');
-    }
-  }
-
-  Serial.println("Telegram Response:");
-  Serial.println(response);
-  confirmFlag=0;
-}
-
-
