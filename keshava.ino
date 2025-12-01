@@ -16,6 +16,7 @@ static const int gsrPin = 34;
 Servo myservo;
 static const int servoPin = 18;
 const int buzzer = 5;
+const int vibrator=14;
 
 const int heartRate[] = {70,90,110,150,90,110,160,70,80,100,180};
 
@@ -69,10 +70,12 @@ void deterrent(void *parameter){
     if(btnFlag == 1){
       myservo.write(180);
       digitalWrite(buzzer, HIGH);
+      digitalWrite(vibrator,HIGH);
     }
     else if(btnFlag == 0){
       myservo.write(0);
       digitalWrite(buzzer, LOW);
+      digitalWrite(vibrator,LOW);
     }
     vTaskDelay(1000/portTICK_PERIOD_MS);
   }
@@ -189,6 +192,7 @@ void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(gsrPin, INPUT);
   pinMode(buzzer, OUTPUT);
+  pinMode(vibrator,OUTPUT);
 
   myservo.attach(servoPin);
   myservo.write(0);
